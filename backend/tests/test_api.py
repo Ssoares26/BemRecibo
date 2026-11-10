@@ -298,3 +298,38 @@ def test_pdf_survives_special_characters(client):
     pdf = client.get(f"/documents/{created.json()['id']}/pdf")
     assert pdf.status_code == 200
     assert pdf.content.startswith(b"%PDF")
+
+
+def _pdf_page_count(content: bytes) -> int:
+    return content.count(b"/Type /Page") - content.count(b"/Type /Pages")
+
+
+def test_document_with_every_field_fits_on_one_page(client):
+    payload = {
+        "person_type": "PJ",
+        "donor_name": "Associação dos Moradores de Santo Amaro",
+        "tax_id": "34.567.890/0001-12",
+        "email": "associacao@amsa.org.br",
+        "phone": "(81) 3033-7788",
+        "representative": "Lúcia Ramos",
+        "donation_type": "bem",
+        "received_at": "2026-09-27",
+        "purpose": "Distribuição de cestas para famílias em vulnerabilidade",
+        "payment_method": "Entrega presencial na sede",
+        "description": "Cestas básicas de 15 kg com alimentos não perecíveis",
+        "quantity": 20,
+        "estimated_value": 2400.0,
+        "brand_model": "Cesta padrão",
+        "fiscal_document": "NF-e 4471",
+        "notes": "Entrega acompanhada por dois voluntários da instituição.",
+    }
+    created = client.post("/donations", json=payload)
+    assert created.status_code == 200
+
+    pdf = client.get(f"/documents/{created.json()['id']}/pdf").content
+    assert _pdf_page_count(pdf) == 1
+
+
+def test_financial_document_fits_on_one_page(client, sample_donation):
+    pdf = client.get(f"/documents/{sample_donation['id']}/pdf").content
+    assert _pdf_page_count(pdf) == 1

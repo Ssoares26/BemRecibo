@@ -307,8 +307,8 @@ def build_pdf(donation, donor, institution):
         pagesize=A4,
         rightMargin=20 * mm,
         leftMargin=20 * mm,
-        topMargin=16 * mm,
-        bottomMargin=26 * mm,
+        topMargin=14 * mm,
+        bottomMargin=22 * mm,
         title=f"{donation.document_type} {donation.number}",
         author=institution_data.get("name") or "Instituto Pelo Bem",
         subject="Recibo de doação",
@@ -320,15 +320,15 @@ def build_pdf(donation, donor, institution):
         textColor=colors.HexColor("#3d4a41"),
     )
     body = ParagraphStyle("Body", parent=small, alignment=TA_JUSTIFY, fontSize=9.2, leading=14)
-    cell = ParagraphStyle("Cell", parent=base["Normal"], fontSize=8.8, leading=12, wordWrap="CJK")
+    cell = ParagraphStyle("Cell", parent=base["Normal"], fontSize=8.7, leading=11.4, wordWrap="CJK")
     cell_label = ParagraphStyle("CellLabel", parent=cell, fontName="Helvetica-Bold", textColor=GREEN)
     section = ParagraphStyle(
         "Section", parent=base["Normal"], fontName="Helvetica-Bold", fontSize=9.5,
-        textColor=GREEN, spaceBefore=6, spaceAfter=3,
+        textColor=GREEN, spaceBefore=3, spaceAfter=2,
     )
     doc_kind = ParagraphStyle(
         "DocKind", parent=base["Heading2"], alignment=TA_CENTER,
-        fontSize=12.5, leading=16, textColor=GREEN, spaceBefore=6, spaceAfter=2,
+        fontSize=12.5, leading=16, textColor=GREEN, spaceBefore=3, spaceAfter=2,
     )
     number_style = ParagraphStyle(
         "Number", parent=base["Normal"], alignment=TA_CENTER,
@@ -336,7 +336,7 @@ def build_pdf(donation, donor, institution):
     )
     warning_style = ParagraphStyle(
         "Warning", parent=small, fontSize=8.2, leading=11.8, textColor=ORANGE,
-        borderColor=colors.HexColor("#e9c28b"), borderWidth=0.7, borderPadding=7,
+        borderColor=colors.HexColor("#e9c28b"), borderWidth=0.7, borderPadding=6,
         backColor=colors.HexColor("#fff8ed"),
     )
     inst_name_style = ParagraphStyle(
@@ -393,10 +393,10 @@ def build_pdf(donation, donor, institution):
 
     story += [
         header,
-        HRFlowable(width="100%", thickness=1.4, color=GREEN_RULE, spaceBefore=2, spaceAfter=8),
+        HRFlowable(width="100%", thickness=1.4, color=GREEN_RULE, spaceBefore=2, spaceAfter=6),
         Paragraph(esc(donation.document_type.upper()), doc_kind),
         Paragraph(f"Nº {esc(donation.number)}", number_style),
-        Spacer(1, 8),
+        Spacer(1, 6),
     ]
 
     if getattr(donation, "voided", False):
@@ -467,8 +467,8 @@ def build_pdf(donation, donor, institution):
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("LEFTPADDING", (0, 0), (-1, -1), 7),
         ("RIGHTPADDING", (0, 0), (-1, -1), 7),
-        ("TOPPADDING", (0, 0), (-1, -1), 5),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ("TOPPADDING", (0, 0), (-1, -1), 3.5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3.5),
         ("ROWBACKGROUNDS", (1, 0), (1, -1), [colors.white, colors.HexColor("#fbfcfb")]),
     ]))
     story += [table, Spacer(1, 8)]
@@ -482,7 +482,7 @@ def build_pdf(donation, donor, institution):
                 "conservação e destiná-los exclusivamente às suas atividades assistenciais.",
                 body,
             ),
-            Spacer(1, 6),
+            Spacer(1, 4),
         ]
 
     if donation.warning_applied:
@@ -510,8 +510,8 @@ def build_pdf(donation, donor, institution):
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
         ("LEFTPADDING", (0, 0), (-1, -1), 7),
         ("RIGHTPADDING", (0, 0), (-1, -1), 7),
-        ("TOPPADDING", (0, 0), (-1, -1), 6),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
     ]))
     story += [Spacer(1, 2), authenticity]
 
@@ -548,7 +548,7 @@ def build_pdf(donation, donor, institution):
 
     story += [
         KeepTogether([
-            Spacer(1, 14),
+            Spacer(1, 10),
             signature_table,
             Spacer(1, 10),
             Paragraph(
@@ -556,7 +556,7 @@ def build_pdf(donation, donor, institution):
                 f"Status institucional no momento da emissão: "
                 f"{STATUS_LABELS.get(donation.institution_status_snapshot, 'Pré-habilitação')}. "
                 "Modelo demonstrativo sujeito à validação institucional, contábil e jurídica.",
-                ParagraphStyle("Foot", parent=small, fontSize=7.6, leading=10.5,
+                ParagraphStyle("Foot", parent=small, fontSize=7.4, leading=10,
                                textColor=colors.HexColor("#78847b")),
             ),
         ])
