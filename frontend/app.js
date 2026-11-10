@@ -1,17 +1,20 @@
 /* ==========================================================================
    BemRecibo — camada de interface
-   Conversa com a API do backend (FastAPI) e mantém o estado das telas.
+   Conversa com a API do Cloudflare Worker que também serve estes arquivos,
+   portanto o padrão é a mesma origem (sem CORS e sem configurar URL).
    ========================================================================== */
 (() => {
   "use strict";
 
   /* ------------------------------------------------------------ config --- */
   const resolveApiBase = () => {
+    // Permite apontar para outro servidor (ex.: backend Python local em
+    // http://127.0.0.1:8000) apenas preenchendo a meta abaixo no index.html.
     const configured = document.querySelector('meta[name="bemrecibo-api"]')?.content?.trim();
     if (configured) return configured.replace(/\/+$/, "");
-    if (location.protocol === "file:") return "http://127.0.0.1:8000";
-    const isLocal = ["localhost", "127.0.0.1"].includes(location.hostname);
-    if (isLocal && location.port && location.port !== "8000") return "http://127.0.0.1:8000";
+    // Arquivo aberto direto do disco: assume o Worker de desenvolvimento.
+    if (location.protocol === "file:") return "http://127.0.0.1:8787";
+    // Em produção e no `wrangler dev` o app e a API vêm do mesmo host.
     return "";
   };
 
@@ -248,7 +251,80 @@
     $("inst-city").value = institution.city || "";
     $("inst-email").value = institution.email || "";
     $("inst-site").value = institution.site || "";
+    $("inst-signatory-name").value = institution.signatory_name || "";
+    $("inst-signatory-role").value = institution.signatory_role || "";
+
+    paintAsset("logo", institution.has_logo);
+    paintAsset("signature", institution.has_signature);
   }
+
+  function paintAsset(kind, exists) {
+    const preview = $(`${kind}-preview`);
+    const removeButton = $(`remove-${kind}`);
+    removeButton.disabled = !exists;
+    if (!exists) {
+      preview.innerHTML = `<span class="asset-empty">Nenhum arquivo enviado</span>`;
+      return;
+    }
+    preview.innerHTML =
+      `<img src="${API}/institution/${kind}?t=${Date.now()}" alt="${kind === "logo" ? "Logotipo" : "Assinatura"} atual">`;
+  }
+
+  const assetLabels = (kind) => ({
+    label: kind === "logo" ? "logotipo" : "assinatura",
+    title: kind === "logo" ? "Logotipo" : "Assinatura",
+  });
+
+  async function uploadAsset(kind, file) {
+    const { label, title } = assetLabels(kind);
+    const message = $(`${kind}-message`);
+    if (!file) {
+      message.textContent = `Selecione o arquivo do ${label}.`;
+      message.classList.add("error");
+      return;
+    }
+    const body = new FormData();
+    body.append(kind, file);
+    try {
+      const institution = await apiJson(`/institution/${kind}`, { method: "PUT", body });
+      paintInstitution(institution);
+      $(`${kind}_file`).value = "";
+      message.classList.remove("error");
+      message.textContent = `${title} salvo. Os próximos PDFs já usam a imagem.`;
+      showToast(`${title} atualizado nos documentos.`);
+    } catch (error) {
+      message.textContent = error.message;
+      message.classList.add("error");
+      showToast(error.message, { type: "error" });
+    }
+  }
+
+  async function removeAsset(kind) {
+    const { label, title } = assetLabels(kind);
+    const { ok } = await confirmAction({
+      title: `Remover ${label}?`,
+      text: "Os próximos documentos voltam a usar o modelo padrão, sem essa imagem.",
+      confirmLabel: "Remover",
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      const institution = await apiJson(`/institution/${kind}`, { method: "DELETE" });
+      paintInstitution(institution);
+      const message = $(`${kind}-message`);
+      message.classList.remove("error");
+      message.textContent = `${title} removido.`;
+      showToast(`${title} removido dos documentos.`);
+    } catch (error) {
+      showToast(error.message, { type: "error" });
+    }
+  }
+
+  ["logo", "signature"].forEach((kind) => {
+    $(`upload-${kind}`).addEventListener("click", () =>
+      uploadAsset(kind, $(`${kind}_file`).files[0]));
+    $(`remove-${kind}`).addEventListener("click", () => removeAsset(kind));
+  });
 
   async function loadInstitution() {
     try {
@@ -268,6 +344,8 @@
       city: $("inst-city").value.trim(),
       email: $("inst-email").value.trim(),
       site: $("inst-site").value.trim(),
+      signatory_name: $("inst-signatory-name").value.trim(),
+      signatory_role: $("inst-signatory-role").value.trim(),
     };
     if (payload.name.length < 2) {
       showToast("Informe o nome da instituição.", { type: "error" });

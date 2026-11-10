@@ -1,4 +1,10 @@
-# Backend — notas de implementação
+# Backend Python — versão de referência
+
+> A aplicação em produção roda no **Cloudflare Workers + D1**
+> (veja [`../cloudflare/`](../cloudflare/)). Esta versão em Python/FastAPI é
+> mantida como referência do projeto acadêmico: traz a mesma API, a mesma suíte
+> de 50 testes e o banco `bemrecibo.db` que originou `cloudflare/seed.sql`.
+> Novos recursos devem ser implementados em `cloudflare/src/`.
 
 ## Banco de dados
 

@@ -31,6 +31,12 @@ class Institution(Base):
     phone = Column(String(40), nullable=True)
     email = Column(String(180), nullable=True)
     site = Column(String(180), nullable=True)
+    logo_filename = Column(String(255), nullable=True)
+    logo_content = Column(Text, nullable=True)       # MVP: conteúdo em base64
+    signature_filename = Column(String(255), nullable=True)
+    signature_content = Column(Text, nullable=True)  # MVP: conteúdo em base64
+    signatory_name = Column(String(180), nullable=True)
+    signatory_role = Column(String(120), nullable=True)
     proof_filename = Column(String(255), nullable=True)
     proof_content = Column(Text, nullable=True)  # MVP: conteúdo codificado em base64
     proof_uploaded_at = Column(DateTime, nullable=True)

@@ -404,6 +404,10 @@
                   <label>E-mail<input id="inst-email" type="email" maxlength="180"></label>
                 </div>
                 <label>Site<input id="inst-site" maxlength="180" placeholder="https://"></label>
+                <div class="grid two">
+                  <label>Nome do responsável que assina<input id="inst-signatory-name" maxlength="180" placeholder="Ex.: Andrea Queiroz"></label>
+                  <label>Cargo do responsável<input id="inst-signatory-role" maxlength="120" placeholder="Ex.: Presidente voluntária"></label>
+                </div>
                 <div class="form-actions">
                   <button class="primary sm" type="submit">Salvar dados</button>
                   <p id="institution-message" class="form-message" role="status" aria-live="polite"></p>
@@ -411,6 +415,38 @@
               </form>
             </article>
           </div>
+
+          <article class="panel">
+            <header class="panel-head">
+              <div><h2>Identidade visual dos documentos</h2><p>Logo e assinatura aparecem em todos os PDFs emitidos. Sem os arquivos, o documento usa o modelo padrão.</p></div>
+            </header>
+            <div class="asset-grid">
+              <div class="asset-card">
+                <p class="asset-title">Logotipo</p>
+                <div class="asset-preview" id="logo-preview"></div>
+                <label class="file-field">Enviar imagem (PNG ou JPEG, até 1,5 MB)
+                  <input id="logo_file" type="file" accept="image/png,image/jpeg">
+                </label>
+                <div class="form-actions">
+                  <button class="primary sm" type="button" id="upload-logo">Salvar logotipo</button>
+                  <button class="ghost sm" type="button" id="remove-logo">Remover</button>
+                </div>
+                <p id="logo-message" class="form-message" role="status" aria-live="polite"></p>
+              </div>
+              <div class="asset-card">
+                <p class="asset-title">Assinatura digitalizada</p>
+                <div class="asset-preview" id="signature-preview"></div>
+                <label class="file-field">Enviar imagem (PNG com fundo transparente recomendado)
+                  <input id="signature_file" type="file" accept="image/png,image/jpeg">
+                </label>
+                <div class="form-actions">
+                  <button class="primary sm" type="button" id="upload-signature">Salvar assinatura</button>
+                  <button class="ghost sm" type="button" id="remove-signature">Remover</button>
+                </div>
+                <p id="signature-message" class="form-message" role="status" aria-live="polite"></p>
+              </div>
+            </div>
+          </article>
 
           <article class="panel">
             <header class="panel-head"><div><h2>Como a automação decide o documento</h2><p>Regras embarcadas no sistema conforme o escopo acadêmico.</p></div></header>

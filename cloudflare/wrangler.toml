@@ -1,0 +1,32 @@
+# BemRecibo — Worker + D1 + assets estáticos
+#
+# Primeiro deploy:
+#   npx wrangler login
+#   npx wrangler d1 create bemrecibo          # copie o database_id para este arquivo
+#   npx wrangler d1 migrations apply bemrecibo --remote
+#   npx wrangler d1 execute bemrecibo --remote --file=seed.sql
+#   npx wrangler deploy
+
+name = "bemrecibo"
+main = "src/index.ts"
+compatibility_date = "2026-11-01"
+workers_dev = true
+
+[observability]
+enabled = true
+
+# A interface é servida pelo próprio Worker (sem Pages separado).
+[assets]
+directory = "../frontend"
+binding = "ASSETS"
+run_worker_first = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "bemrecibo"
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "migrations"
+
+[vars]
+# "producao" liga apenas o rótulo exibido na interface
+ENVIRONMENT = "producao"

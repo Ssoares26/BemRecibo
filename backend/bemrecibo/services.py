@@ -1,6 +1,8 @@
 """Regras de formatação e geração dos documentos em PDF do BemRecibo."""
 from __future__ import annotations
 
+import base64
+import hashlib
 from datetime import date, datetime, timezone
 from decimal import ROUND_HALF_UP, Decimal
 from io import BytesIO
@@ -11,7 +13,9 @@ from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
+from reportlab.lib.utils import ImageReader
 from reportlab.platypus import (
+    Image,
     KeepTogether,
     Paragraph,
     SimpleDocTemplate,
@@ -19,6 +23,8 @@ from reportlab.platypus import (
     Table,
     TableStyle,
 )
+from reportlab.platypus.flowables import HRFlowable
+from xml.sax.saxutils import escape as esc
 
 GREEN = colors.HexColor("#173c25")
 GREEN_SOFT = colors.HexColor("#eef4ee")
@@ -86,8 +92,6 @@ STATUS_LABELS = {
 
 def verification_code(donation) -> str:
     """Código curto e estável para conferência do documento impresso."""
-    import hashlib
-
     seed = f"{donation.number}|{donation.id}|{donation.received_at}|{donation.created_at}"
     digest = hashlib.sha256(seed.encode("utf-8")).hexdigest().upper()[:12]
     return f"{digest[:4]}-{digest[4:8]}-{digest[8:12]}"
@@ -221,22 +225,60 @@ def number_to_words_pt(value) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Imagens institucionais (logo e assinatura)
+# ---------------------------------------------------------------------------
+
+PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
+JPEG_MAGIC = b"\xff\xd8\xff"
+
+
+def detect_image_type(content: bytes) -> str | None:
+    """Retorna o MIME type da imagem ou None quando não é PNG/JPEG."""
+    if content.startswith(PNG_MAGIC):
+        return "image/png"
+    if content.startswith(JPEG_MAGIC):
+        return "image/jpeg"
+    return None
+
+
+def _image_flowable(content_b64: str | None, max_width, max_height):
+    """Monta um flowable de imagem preservando a proporção original."""
+    if not content_b64:
+        return None
+    try:
+        raw = base64.b64decode(content_b64)
+        reader = ImageReader(BytesIO(raw))
+        width, height = reader.getSize()
+        if not width or not height:
+            return None
+        scale = min(max_width / width, max_height / height)
+        return Image(BytesIO(raw), width=width * scale, height=height * scale, mask="auto")
+    except Exception:
+        return None
+
+
+# ---------------------------------------------------------------------------
 # Documento PDF
 # ---------------------------------------------------------------------------
+
+GREEN_RULE = colors.HexColor("#173c25")
 
 
 def _institution_attributes(institution) -> dict:
     """Aceita tanto o modelo Institution quanto um nome simples (compatibilidade)."""
     if isinstance(institution, str):
         return {"name": institution}
-    keys = ("name", "cnpj", "address", "city", "phone", "email", "site", "status")
+    keys = (
+        "name", "cnpj", "address", "city", "phone", "email", "site", "status",
+        "logo_content", "signature_content", "signatory_name", "signatory_role",
+    )
     return {key: getattr(institution, key, None) for key in keys}
 
 
 def _footer_factory(document_number: str, voided: bool):
     def _footer(canvas, doc):
         canvas.saveState()
-        width, height = A4
+        width, _ = A4
         canvas.setStrokeColor(LINE)
         canvas.setLineWidth(0.6)
         canvas.line(22 * mm, 18 * mm, width - 22 * mm, 18 * mm)
@@ -257,7 +299,7 @@ def _footer_factory(document_number: str, voided: bool):
 def build_pdf(donation, donor, institution):
     """Gera o PDF do recibo/termo da doação e devolve um BytesIO posicionado no início."""
     institution_data = _institution_attributes(institution)
-    institution_name = institution_data.get("name") or "Instituto Pelo Bem"
+    institution_name = esc(institution_data.get("name") or "Instituto Pelo Bem")
 
     buffer = BytesIO()
     doc = SimpleDocTemplate(
@@ -265,86 +307,96 @@ def build_pdf(donation, donor, institution):
         pagesize=A4,
         rightMargin=20 * mm,
         leftMargin=20 * mm,
-        topMargin=18 * mm,
-        bottomMargin=26 * mm,
+        topMargin=14 * mm,
+        bottomMargin=22 * mm,
         title=f"{donation.document_type} {donation.number}",
-        author=institution_name,
+        author=institution_data.get("name") or "Instituto Pelo Bem",
         subject="Recibo de doação",
     )
 
     base = getSampleStyleSheet()
-    title = ParagraphStyle(
-        "TitleCenter", parent=base["Title"], alignment=TA_CENTER,
-        textColor=GREEN, fontSize=17, leading=21, spaceAfter=2,
-    )
-    subtitle = ParagraphStyle(
-        "Subtitle", parent=base["Normal"], alignment=TA_CENTER,
-        fontSize=9, leading=13, textColor=colors.HexColor("#46534a"),
-    )
-    doc_kind = ParagraphStyle(
-        "DocKind", parent=base["Heading2"], alignment=TA_CENTER,
-        fontSize=12.5, leading=16, textColor=GREEN, spaceBefore=10, spaceAfter=2,
-    )
-    number_style = ParagraphStyle(
-        "Number", parent=base["Normal"], alignment=TA_CENTER,
-        fontSize=10, leading=13, textColor=colors.HexColor("#68756c"),
-    )
     small = ParagraphStyle(
         "Small", parent=base["BodyText"], fontSize=8.6, leading=12.5,
         textColor=colors.HexColor("#3d4a41"),
     )
     body = ParagraphStyle("Body", parent=small, alignment=TA_JUSTIFY, fontSize=9.2, leading=14)
-    cell = ParagraphStyle("Cell", parent=base["Normal"], fontSize=8.8, leading=12, wordWrap="CJK")
-    cell_label = ParagraphStyle(
-        "CellLabel", parent=cell, fontName="Helvetica-Bold", textColor=GREEN,
-    )
+    cell = ParagraphStyle("Cell", parent=base["Normal"], fontSize=8.7, leading=11.4, wordWrap="CJK")
+    cell_label = ParagraphStyle("CellLabel", parent=cell, fontName="Helvetica-Bold", textColor=GREEN)
     section = ParagraphStyle(
         "Section", parent=base["Normal"], fontName="Helvetica-Bold", fontSize=9.5,
-        textColor=GREEN, spaceBefore=6, spaceAfter=3,
+        textColor=GREEN, spaceBefore=3, spaceAfter=2,
+    )
+    doc_kind = ParagraphStyle(
+        "DocKind", parent=base["Heading2"], alignment=TA_CENTER,
+        fontSize=12.5, leading=16, textColor=GREEN, spaceBefore=3, spaceAfter=2,
+    )
+    number_style = ParagraphStyle(
+        "Number", parent=base["Normal"], alignment=TA_CENTER,
+        fontSize=10, leading=13, textColor=colors.HexColor("#68756c"),
     )
     warning_style = ParagraphStyle(
         "Warning", parent=small, fontSize=8.2, leading=11.8, textColor=ORANGE,
-        borderColor=colors.HexColor("#e9c28b"), borderWidth=0.7, borderPadding=7,
+        borderColor=colors.HexColor("#e9c28b"), borderWidth=0.7, borderPadding=6,
         backColor=colors.HexColor("#fff8ed"),
+    )
+    inst_name_style = ParagraphStyle(
+        "InstName", parent=base["Normal"], fontName="Helvetica-Bold", fontSize=13.5,
+        leading=16, textColor=GREEN,
+    )
+    identity_style = ParagraphStyle(
+        "Identity", parent=base["Normal"], fontSize=8, leading=11,
+        textColor=colors.HexColor("#5c6a61"),
     )
 
     story: list = []
 
-    header_rows = [[Paragraph(f"<b>{institution_name}</b>", ParagraphStyle(
-        "Inst", parent=base["Normal"], fontName="Helvetica-Bold", fontSize=12,
-        textColor=colors.white, leading=15,
-    ))]]
-    header = Table(header_rows, colWidths=[170 * mm])
-    header.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, -1), GREEN),
-        ("LEFTPADDING", (0, 0), (-1, -1), 10),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 10),
-        ("TOPPADDING", (0, 0), (-1, -1), 2),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
-    ]))
-    story.append(header)
-
-    identity_lines: Iterable[str] = filter(None, [
-        format_tax_id(institution_data.get("cnpj")) if institution_data.get("cnpj") else None,
-        institution_data.get("address"),
-        institution_data.get("city"),
+    # ---------------------------------------------------------- cabeçalho --
+    identity_lines = [
+        format_tax_id(institution_data.get("cnpj")) if institution_data.get("cnpj") else "",
+        institution_data.get("address") or "",
+        institution_data.get("city") or "",
         " · ".join(filter(None, [
             institution_data.get("phone"),
             institution_data.get("email"),
             institution_data.get("site"),
-        ])) or None,
-    ])
-    identity = "<br/>".join(identity_lines)
-    if identity:
-        story.append(Paragraph(identity, ParagraphStyle(
-            "Identity", parent=subtitle, fontSize=8, leading=11, spaceBefore=4,
-        )))
+        ])),
+    ]
+    identity_html = "<br/>".join(esc(line) for line in identity_lines if line)
+
+    logo = _image_flowable(institution_data.get("logo_content"), 30 * mm, 15 * mm)
+    name_block = [Paragraph(institution_name, inst_name_style)]
+    if identity_html:
+        name_block.append(Paragraph(identity_html, identity_style))
+
+    if logo is not None:
+        header = Table(
+            [[logo, name_block]],
+            colWidths=[34 * mm, 136 * mm],
+        )
+        header.setStyle(TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("ALIGN", (0, 0), (0, 0), "LEFT"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 0),
+            ("RIGHTPADDING", (0, 0), (0, 0), 6),
+            ("RIGHTPADDING", (1, 0), (1, 0), 0),
+            ("TOPPADDING", (0, 0), (-1, -1), 0),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ]))
+    else:
+        header = Table([[name_block]], colWidths=[170 * mm])
+        header.setStyle(TableStyle([
+            ("LEFTPADDING", (0, 0), (-1, -1), 0),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+            ("TOPPADDING", (0, 0), (-1, -1), 0),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ]))
 
     story += [
-        Spacer(1, 8),
-        Paragraph(donation.document_type.upper(), doc_kind),
-        Paragraph(f"Nº {donation.number}", number_style),
-        Spacer(1, 10),
+        header,
+        HRFlowable(width="100%", thickness=1.4, color=GREEN_RULE, spaceBefore=2, spaceAfter=6),
+        Paragraph(esc(donation.document_type.upper()), doc_kind),
+        Paragraph(f"Nº {esc(donation.number)}", number_style),
+        Spacer(1, 6),
     ]
 
     if getattr(donation, "voided", False):
@@ -354,54 +406,59 @@ def build_pdf(donation, donor, institution):
         )))
         story.append(Spacer(1, 8))
 
+    # ------------------------------------------------------------- corpo ---
     donor_type = "Pessoa Física" if donor.person_type == "PF" else "Pessoa Jurídica"
     intro = (
         f"A instituição <b>{institution_name}</b> declara, para os devidos fins, que recebeu a "
-        f"doação abaixo descrita de <b>{donor.name}</b>, inscrito(a) no CPF/CNPJ sob o nº "
-        f"<b>{format_tax_id(donor.tax_id, donor.person_type)}</b>, na data de "
+        f"doação abaixo descrita de <b>{esc(donor.name)}</b>, inscrito(a) no CPF/CNPJ sob o nº "
+        f"<b>{esc(format_tax_id(donor.tax_id, donor.person_type))}</b>, na data de "
         f"<b>{format_date_br(donation.received_at)}</b>."
     )
     story += [Paragraph(intro, body), Spacer(1, 10)]
 
-    rows: list[list] = [
-        ["Doador", donor.name],
-        ["Tipo de doador", donor_type],
-        ["CPF/CNPJ", format_tax_id(donor.tax_id, donor.person_type)],
+    # (rótulo, valor, negrito)
+    rows: list[tuple[str, str, bool]] = [
+        ("Doador", donor.name, False),
+        ("Tipo de doador", donor_type, False),
+        ("CPF/CNPJ", format_tax_id(donor.tax_id, donor.person_type), False),
     ]
     if donor.representative:
-        rows.append(["Representante legal", donor.representative])
+        rows.append(("Representante legal", donor.representative, False))
     if donor.email or donor.phone:
-        rows.append(["Contato", " · ".join(filter(None, [donor.email, donor.phone]))])
+        rows.append(("Contato", " · ".join(filter(None, [donor.email, donor.phone])), False))
 
     rows += [
-        ["Data de recebimento", format_date_br(donation.received_at)],
-        ["Finalidade da doação", donation.purpose],
-        ["Forma de recebimento", donation.payment_method or "Não informada"],
+        ("Data de recebimento", format_date_br(donation.received_at), False),
+        ("Finalidade da doação", donation.purpose, False),
+        ("Forma de recebimento", donation.payment_method or "Não informada", False),
     ]
 
     if donation.donation_type == "financeira":
         rows += [
-            ["Modalidade", "Doação financeira"],
-            ["Valor da doação", f"<b>{brl(donation.amount)}</b>"],
-            ["Valor por extenso", value_in_words(donation.amount)],
+            ("Modalidade", "Doação financeira", False),
+            ("Valor da doação", brl(donation.amount), True),
+            ("Valor por extenso", value_in_words(donation.amount), False),
         ]
     else:
         rows += [
-            ["Modalidade", "Doação de bem ou serviço"],
-            ["Descrição do bem/serviço", donation.description or ""],
-            ["Quantidade", str(donation.quantity or "")],
-            ["Marca / modelo", donation.brand_model or "Não informado"],
-            ["Documento fiscal", donation.fiscal_document or "Não informado"],
-            ["Valor de mercado estimado", f"<b>{brl(donation.estimated_value)}</b>"],
-            ["Valor por extenso", value_in_words(donation.estimated_value)],
+            ("Modalidade", "Doação de bem ou serviço", False),
+            ("Descrição do bem/serviço", donation.description or "", False),
+            ("Quantidade", str(donation.quantity or ""), False),
+            ("Marca / modelo", donation.brand_model or "Não informado", False),
+            ("Documento fiscal", donation.fiscal_document or "Não informado", False),
+            ("Valor de mercado estimado", brl(donation.estimated_value), True),
+            ("Valor por extenso", value_in_words(donation.estimated_value), False),
         ]
 
     if donation.notes:
-        rows.append(["Observações", donation.notes])
+        rows.append(("Observações", donation.notes, False))
 
     table_data = [
-        [Paragraph(str(label), cell_label), Paragraph(str(value), cell)]
-        for label, value in rows
+        [
+            Paragraph(esc(label), cell_label),
+            Paragraph(f"<b>{esc(value)}</b>" if bold else esc(value), cell),
+        ]
+        for label, value, bold in rows
     ]
     table = Table(table_data, colWidths=[48 * mm, 122 * mm])
     table.setStyle(TableStyle([
@@ -410,8 +467,8 @@ def build_pdf(donation, donor, institution):
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("LEFTPADDING", (0, 0), (-1, -1), 7),
         ("RIGHTPADDING", (0, 0), (-1, -1), 7),
-        ("TOPPADDING", (0, 0), (-1, -1), 5),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ("TOPPADDING", (0, 0), (-1, -1), 3.5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3.5),
         ("ROWBACKGROUNDS", (1, 0), (1, -1), [colors.white, colors.HexColor("#fbfcfb")]),
     ]))
     story += [table, Spacer(1, 8)]
@@ -425,7 +482,7 @@ def build_pdf(donation, donor, institution):
                 "conservação e destiná-los exclusivamente às suas atividades assistenciais.",
                 body,
             ),
-            Spacer(1, 6),
+            Spacer(1, 4),
         ]
 
     if donation.warning_applied:
@@ -433,24 +490,13 @@ def build_pdf(donation, donor, institution):
     else:
         story.append(Spacer(1, 6))
 
-    signature_table = Table(
-        [
-            ["__________________________________", "__________________________________"],
-            [Paragraph("Responsável pela instituição", cell), Paragraph("Doador / representante", cell)],
-        ],
-        colWidths=[85 * mm, 85 * mm],
-    )
-    signature_table.setStyle(TableStyle([
-        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-        ("TOPPADDING", (0, 0), (-1, -1), 2),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
-    ]))
+    # ------------------------------------------------------- autenticidade --
     authenticity = Table(
         [[
             Paragraph("<b>Autenticidade</b>", cell_label),
             Paragraph(
                 f"Código de verificação <b>{verification_code(donation)}</b> · "
-                f"Registro {donation.number} · emitido em "
+                f"Registro {esc(donation.number)} · emitido em "
                 f"{datetime.now(timezone.utc):%d/%m/%Y} pelo sistema BemRecibo. "
                 "Confira o código com a instituição antes de aceitar este documento.",
                 cell,
@@ -464,22 +510,53 @@ def build_pdf(donation, donor, institution):
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
         ("LEFTPADDING", (0, 0), (-1, -1), 7),
         ("RIGHTPADDING", (0, 0), (-1, -1), 7),
-        ("TOPPADDING", (0, 0), (-1, -1), 6),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
     ]))
-    story += [Spacer(1, 4), authenticity]
+    story += [Spacer(1, 2), authenticity]
+
+    # ---------------------------------------------------------- assinaturas --
+    signature_image = _image_flowable(institution_data.get("signature_content"), 42 * mm, 16 * mm)
+
+    institution_caption = "Responsável pela instituição"
+    if institution_data.get("signatory_name"):
+        institution_caption += f"<br/><b>{esc(institution_data['signatory_name'])}</b>"
+    if institution_data.get("signatory_role"):
+        institution_caption += f"<br/>{esc(institution_data['signatory_role'])}"
+
+    # Uma única tabela de 3 linhas garante que as linhas de assinatura fiquem
+    # exatamente na mesma altura, com ou sem imagem de assinatura.
+    signature_table = Table(
+        [
+            [signature_image or "", ""],
+            [Paragraph("__________________________________", cell),
+             Paragraph("__________________________________", cell)],
+            [Paragraph(institution_caption, cell), Paragraph("Doador / representante", cell)],
+        ],
+        colWidths=[85 * mm, 85 * mm],
+    )
+    signature_table.setStyle(TableStyle([
+        ("ALIGN", (0, 0), (0, 0), "CENTER"),
+        ("VALIGN", (0, 0), (-1, 0), "BOTTOM"),
+        ("VALIGN", (0, 1), (-1, -1), "TOP"),
+        ("ALIGN", (0, 1), (-1, -1), "CENTER"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 1),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 1),
+    ]))
 
     story += [
         KeepTogether([
-            Spacer(1, 16),
+            Spacer(1, 10),
             signature_table,
             Spacer(1, 10),
             Paragraph(
-                f"Documento gerado pelo BemRecibo · Registro interno {donation.number} · "
+                f"Documento gerado pelo BemRecibo · Registro interno {esc(donation.number)} · "
                 f"Status institucional no momento da emissão: "
                 f"{STATUS_LABELS.get(donation.institution_status_snapshot, 'Pré-habilitação')}. "
                 "Modelo demonstrativo sujeito à validação institucional, contábil e jurídica.",
-                ParagraphStyle("Foot", parent=small, fontSize=7.6, leading=10.5,
+                ParagraphStyle("Foot", parent=small, fontSize=7.4, leading=10,
                                textColor=colors.HexColor("#78847b")),
             ),
         ])
