@@ -32,6 +32,12 @@ MIGRATIONS = {
         "email": "VARCHAR(180)",
         "site": "VARCHAR(180)",
         "proof_uploaded_at": "DATETIME",
+        "logo_filename": "VARCHAR(255)",
+        "logo_content": "TEXT",
+        "signature_filename": "VARCHAR(255)",
+        "signature_content": "TEXT",
+        "signatory_name": "VARCHAR(180)",
+        "signatory_role": "VARCHAR(120)",
     },
     "donations": {
         "voided": "BOOLEAN NOT NULL DEFAULT 0",

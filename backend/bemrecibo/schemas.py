@@ -79,6 +79,8 @@ class InstitutionUpdate(BaseModel):
     phone: Optional[str] = Field(default=None, max_length=40)
     email: Optional[str] = Field(default=None, max_length=180)
     site: Optional[str] = Field(default=None, max_length=180)
+    signatory_name: Optional[str] = Field(default=None, max_length=180)
+    signatory_role: Optional[str] = Field(default=None, max_length=120)
 
 
 class InstitutionOut(BaseModel):
@@ -90,6 +92,12 @@ class InstitutionOut(BaseModel):
     phone: Optional[str] = None
     email: Optional[str] = None
     site: Optional[str] = None
+    signatory_name: Optional[str] = None
+    signatory_role: Optional[str] = None
+    has_logo: bool = False
+    logo_filename: Optional[str] = None
+    has_signature: bool = False
+    signature_filename: Optional[str] = None
     has_proof: bool = False
     proof_filename: Optional[str] = None
     proof_uploaded_at: Optional[datetime] = None
