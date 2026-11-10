@@ -18,6 +18,7 @@ import {
   numberToWordsPt,
   toIsoDate,
 } from "./services";
+import { SCHEMA_STATEMENTS } from "./schema";
 import type { DonationRow, DonorRow, Env, InstitutionRow } from "./types";
 
 const JSON_TYPE = "application/json; charset=utf-8";
@@ -41,6 +42,24 @@ function withCors(response: Response): Response {
   const headers = new Headers(response.headers);
   for (const [key, value] of Object.entries(corsHeaders)) headers.set(key, value);
   return new Response(response.body, { status: response.status, headers });
+}
+
+/* --------------------------------------------------------------------------
+ * Inicialização do banco
+ * ------------------------------------------------------------------------ */
+
+// Uma promessa por isolate: as instruções são idempotentes, mas não precisam
+// rodar em toda requisição. Em caso de falha, o cache é limpo para tentar de novo.
+let schemaReady: Promise<void> | null = null;
+
+function ensureSchema(env: Env): Promise<void> {
+  schemaReady ??= env.DB.batch(SCHEMA_STATEMENTS.map((sql) => env.DB.prepare(sql)))
+    .then(() => undefined)
+    .catch((error) => {
+      schemaReady = null;
+      throw error;
+    });
+  return schemaReady;
 }
 
 /* --------------------------------------------------------------------------
@@ -884,6 +903,12 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     try {
+      // Prepara o banco no primeiro acesso (instalação só pela interface).
+      // Uma falha aqui não impede a interface de abrir: o erro aparece na
+      // chamada da API correspondente.
+      await ensureSchema(env).catch((error) => {
+        console.error("Falha ao preparar o esquema do banco:", error);
+      });
       return withCors(await handleRequest(request, env));
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

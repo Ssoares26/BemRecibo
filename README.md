@@ -96,7 +96,8 @@ aplica o esquema, carrega os dados e publica. Depois disso, novas versões saem 
 `npm run deploy`.
 
 > Importante: a aplicação é um **Worker** (com assets), não um projeto **Pages**.
-> No painel do Cloudflare use *Workers & Pages → Create → Workers*.
+> O guia em [`cloudflare/README.md`](cloudflare/README.md) tem o passo a passo
+> da primeira publicação pela interface do Cloudflare, incluindo D1 e migração dos dados.
 
 ## Migração dos dados
 

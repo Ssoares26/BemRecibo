@@ -179,6 +179,77 @@ Guarde o arquivo fora do repositório.
 
 ---
 
+## Primeira publicação pela interface do Cloudflare
+
+Este é o caminho sem terminal. Faça estes passos **depois de o PR desta versão
+estar mesclado na `main`**. Não crie Pages: o produto é um Worker.
+
+### 1. Criar o banco D1
+
+1. No painel Cloudflare, abra **Storage & databases → D1 SQL Database** (em
+   algumas versões do painel, **Workers & Pages → D1**).
+2. Clique em **Create database**, use o nome `bemrecibo` e confirme.
+3. Abra o banco recém-criado, copie o **Database ID** (UUID) exibido nos detalhes.
+
+### 2. Ligar o Worker ao D1 no repositório
+
+1. No GitHub, abra `Ssoares26/BemRecibo` na branch `main` e o arquivo
+   `cloudflare/wrangler.toml`.
+2. Clique em editar e troque apenas o valor de `database_id` (atualmente um
+   UUID zero de exemplo) pelo **Database ID** copiado do Cloudflare. Mantenha
+   `database_name = "bemrecibo"` e `binding = "DB"`.
+3. Salve com **Commit changes** na `main`. Se o Worker já estiver conectado,
+   esse commit dispara um novo deploy; se ainda não estiver, crie-o no passo 3
+   depois de salvar o ID. O primeiro deploy bem-sucedido precisa encontrar o ID
+   real no arquivo.
+
+### 3. Criar o Worker ligado ao GitHub
+
+1. No Cloudflare, vá para **Workers & Pages → Create application → Create
+   Worker → Connect to Git** (os rótulos podem aparecer como *Create Worker* e
+   *Connect to Git*).
+2. Autorize o GitHub e escolha `Ssoares26/BemRecibo`, branch de produção `main`.
+3. Em **Build settings**, configure:
+
+   | Campo | Valor |
+   | --- | --- |
+   | Root directory | `cloudflare` |
+   | Build command | `npm ci` |
+   | Deploy command | `npx wrangler deploy` |
+
+4. Confirme a criação e aguarde o deploy. Abra a URL `*.workers.dev` indicada.
+   No primeiro acesso o Worker cria as tabelas do D1 automaticamente; essa
+   inicialização é idempotente e segura se as tabelas já existirem.
+
+> Se você já criou um projeto **Pages**, ele é um produto diferente. Deixe-o
+> sem uso ou remova-o; crie um novo projeto **Worker** seguindo os passos acima.
+> Não tente corrigir o Pages trocando apenas o comando de deploy.
+
+### 4. Importar os dados existentes pelo console D1
+
+A inicialização cria as tabelas, mas **não carrega os registros**. Para migrar
+os dados de exemplo já existentes no sistema:
+
+1. No Cloudflare, abra **Storage & databases → D1 SQL Database → bemrecibo →
+   Console**.
+2. No GitHub, abra `cloudflare/seed.sql` na branch `main`, clique em **Raw**,
+   copie todo o conteúdo e cole no console SQL do D1. Execute os comandos. O
+   arquivo é idempotente (`INSERT OR REPLACE`): não duplica IDs se executado de
+   novo.
+3. Recarregue o app. Você deverá ver **7 doadores, 10 doações e 10 documentos**.
+
+O Worker cria o esquema ao primeiro acesso; se preferir preparar o banco antes
+de abrir o app, copie e execute primeiro `cloudflare/migrations/0001_init.sql`
+no console D1, depois execute `seed.sql`.
+
+> **Importante:** faça a carga inicial uma única vez, antes de começar a cadastrar
+> dados reais. O seed restaura os registros de referência (IDs 1 a 10) e pode
+> substituir esses registros se executado novamente. Depois da migração, envie o
+> logo, a assinatura e atualize os dados cadastrais na aba **Instituição** —
+> imagens locais de demonstração não fazem parte da migração.
+
+---
+
 ## Deploy contínuo (opcional)
 
 Depois da primeira publicação manual, dá para deixar cada push na `main` publicar
@@ -204,8 +275,10 @@ deploy precisa rodar de dentro dessa pasta.
 > `It seems that you have run wrangler deploy on a Pages project`. Nesse caso,
 > apague o projeto Pages e use **Workers & Pages → Create → Workers**.
 
-O Workers Builds apenas publica o código: o banco (`db:migrate` / `db:seed`) é
-configurado uma única vez pelo passo a passo manual.
+O Workers Builds publica o código. No primeiro deploy pelo painel, crie o D1,
+grave o ID no `wrangler.toml` e importe `seed.sql` seguindo a seção acima. O
+Worker cria o esquema automaticamente; o seed continua sendo uma etapa explícita
+para evitar sobrescrever dados de produção.
 
 ### B) GitHub Actions
 
@@ -229,7 +302,8 @@ valendo).
 | --- | --- | --- |
 | `Missing entry-point to Worker script or to assets directory` | o deploy rodou na raiz do repositório | rode de dentro de `cloudflare/` ou use `bash scripts/setup.sh` |
 | `It seems that you have run wrangler deploy on a Pages project` | o projeto criado no painel é **Pages** | apague e crie um **Worker** (veja *Deploy contínuo*) |
-| `Couldn't find a D1 DB with binding DB` | `database_id` ainda é o de exemplo | rode `bash scripts/setup.sh` ou refaça o passo 3 |
+| `Couldn't find a D1 DB with binding DB` | ID não configurado ou incorreto | confira se o `database_id` no `cloudflare/wrangler.toml` é o UUID do D1 criado no painel |
+| `database_id` ainda é `00000000-…` | o ID real não foi gravado no repositório | edite o arquivo pelo GitHub e aguarde um novo deploy |
 | `no such table: donations` | migração não aplicada no banco remoto | `npm run db:migrate` |
 | Interface abre, mas listas vazias | seed não executado | `npm run db:seed` |
 | `Authentication error` no deploy | sessão expirada | `npx wrangler login` novamente |
