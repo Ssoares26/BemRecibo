@@ -5,6 +5,13 @@ Sistema web de controle de doações e emissão automática de recibos para o
 de Sistemas que substitui o processo manual de emissão de recibos por um fluxo
 automatizado, rastreável e com travas de conformidade fiscal.
 
+O sistema roda **inteiramente no Cloudflare**: a interface, a API e os PDFs são
+entregues por um único Worker e os dados ficam no banco D1 (SQLite gerenciado).
+Não há servidor para administrar, container para subir nem outro provedor
+envolvido.
+
+## Funcionalidades
+
 - Cadastro unificado de doadores **PF e PJ** com identificador único (CPF/CNPJ)
 - Registro de doações **financeiras** e de **bens/serviços**
 - Numeração sequencial automática (`BR-2026-000001`) por exercício
@@ -18,55 +25,88 @@ automatizado, rastreável e com travas de conformidade fiscal.
 
 | Camada | Tecnologia |
 | --- | --- |
-| API | Python 3.11 · FastAPI · SQLAlchemy 2 · Pydantic 2 |
-| Banco | SQLite (padrão) — configurável via `DATABASE_URL` |
-| Documentos | ReportLab (PDF gerado sob demanda, sem armazenar arquivos) |
-| Interface | HTML, CSS e JavaScript puro (sem build, sem dependências) |
+| API | Cloudflare Workers · TypeScript |
+| Banco | Cloudflare D1 (SQLite gerenciado), com migrações versionadas |
+| Documentos | `pdf-lib` (PDF gerado sob demanda no Worker, sem armazenar arquivos) |
+| Interface | HTML, CSS e JavaScript puro, servida pelo próprio Worker (binding de assets) |
+
+Uma única URL entrega aplicação e API, então não há CORS nem configuração de
+endereço da API no front-end.
 
 ## Estrutura
 
 ```
 BemRecibo/
-├── backend/
-│   ├── bemrecibo/
-│   │   ├── main.py        # rotas HTTP
-│   │   ├── models.py      # tabelas SQLAlchemy
-│   │   ├── schemas.py     # validação de entrada/saída
-│   │   ├── services.py    # PDF, valor por extenso, formatação
-│   │   └── database.py    # conexão + migrações leves
-│   ├── tests/             # testes automatizados (pytest)
-│   ├── schema.sql         # documentação do esquema
-│   ├── seed_demo.py       # dados de demonstração
-│   └── requirements.txt
+├── cloudflare/            # aplicação publicada (Worker + D1 + assets)
+│   ├── src/
+│   │   ├── index.ts       # rotas HTTP, validação e regras de numeração
+│   │   ├── services.ts    # formatação, valor por extenso, CSV, uploads
+│   │   ├── pdf.ts         # geração dos documentos em pdf-lib
+│   │   └── types.ts       # tipos das tabelas e do ambiente
+│   ├── migrations/        # esquema do banco D1 (0001_init.sql)
+│   ├── scripts/           # exportação dos dados e smoke test
+│   ├── tests/             # testes do núcleo (npm test)
+│   ├── seed.sql           # dados migrados do banco atual
+│   └── README.md          # passo a passo de publicação
 ├── frontend/              # interface (index.html, styles.css, app.js)
-├── deploy/                # configurações de publicação
+├── backend/               # versão Python/FastAPI mantida como referência
 └── docs/                  # apresentação do projeto (PDF)
 ```
 
-## Como rodar localmente
+## Rodando localmente
+
+Pré-requisitos: Node.js 20 ou superior.
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r backend/requirements.txt
+cd cloudflare
+npm install
 
-cd backend
-python -m uvicorn bemrecibo.main:app --reload --port 8000
+# na primeira vez: cria o banco local e carrega os dados
+npm run db:migrate:local
+npm run db:seed:local
+
+npm run dev
 ```
 
-Acesse:
+Acesse <http://127.0.0.1:8787>. A interface e a API saem do mesmo endereço, com
+banco D1 simulado em `.wrangler/`.
 
-- Interface: <http://127.0.0.1:8000/app/> (a raiz `/` redireciona o navegador)
-- Documentação da API: <http://127.0.0.1:8000/docs>
-- Saúde do serviço: <http://127.0.0.1:8000/health>
-
-O banco `backend/bemrecibo.db` é criado no primeiro start. Para carregar dados de
-demonstração:
+Para conferir sem abrir o navegador:
 
 ```bash
-cd backend
-python seed_demo.py --reset
+curl http://127.0.0.1:8787/health
+curl http://127.0.0.1:8787/stats
+npm run smoke          # bateria de verificação das rotas principais
 ```
+
+## Deploy
+
+O passo a passo completo (criar o banco D1, aplicar o esquema, carregar os dados
+e publicar) está em **[`cloudflare/README.md`](cloudflare/README.md)**. Resumo:
+
+```bash
+cd cloudflare
+npx wrangler login
+npx wrangler d1 create bemrecibo            # copie o database_id para wrangler.toml
+npm run db:migrate                          # esquema no banco de produção
+npm run db:seed                             # dados atuais do sistema
+npm run deploy
+```
+
+## Migração dos dados
+
+O arquivo `cloudflare/seed.sql` foi gerado a partir do banco SQLite que já
+estava em uso (`backend/bemrecibo.db`), preservando doadores, doações,
+documentos e os dados da instituição. Para reexportar depois de qualquer
+alteração no banco antigo:
+
+```bash
+python3 cloudflare/scripts/export-sqlite-to-d1.py   # regenera cloudflare/seed.sql
+cd cloudflare && npm run db:seed
+```
+
+O script normaliza datas para o padrão ISO e usa `INSERT OR REPLACE`, então pode
+ser executado mais de uma vez sem duplicar registros.
 
 ## Como a automação decide o documento
 
@@ -83,13 +123,15 @@ registro. Reemitir um documento nunca cria uma nova doação nem reaplica regras
 
 ## API
 
+Todas as rotas são servidas pelo Worker na raiz do domínio.
+
 | Método | Rota | Descrição |
 | --- | --- | --- |
-| GET | `/` | Status da API (JSON) ou redireciona para a interface |
+| GET | `/` | Interface (navegador) ou status da API (JSON) |
 | GET | `/health` | Verificação de saúde |
 | GET | `/institution` | Dados e status da instituição |
 | PUT | `/institution` | Atualiza dados cadastrais e assinante usados no PDF |
-| PUT/DELETE/GET | `/institution/logo` | Envia, remove ou visualiza o logotipo (PNG/JPEG, até 1,5 MB) |
+| PUT/DELETE/GET | `/institution/logo` | Envia, remove ou visualiza o logotipo (PNG/JPEG, até 700 KB) |
 | PUT/DELETE/GET | `/institution/signature` | Envia, remove ou visualiza a assinatura digitalizada |
 | PUT | `/institution/status?status=habilitada` | Habilita (exige `proof`) ou volta para pré-habilitação |
 | GET | `/institution/proof` | Baixa o comprovante anexado |
@@ -107,31 +149,27 @@ registro. Reemitir um documento nunca cria uma nova doação nem reaplica regras
 ## Testes
 
 ```bash
-pip install -r backend/requirements-dev.txt
-cd backend && python -m pytest -q
+cd cloudflare
+npm run typecheck    # TypeScript em modo estrito, sem erros
+npm test             # 13 testes do núcleo (valor por extenso, máscaras, PDF, CSV)
 ```
+
+A versão Python mantém sua própria suíte (50 testes): `cd backend && pytest -q`.
 
 ## Configuração
 
-| Variável | Padrão | Uso |
+| Item | Onde | Uso |
 | --- | --- | --- |
-| `DATABASE_URL` | `sqlite:///backend/bemrecibo.db` | String de conexão SQLAlchemy |
-| `ALLOWED_ORIGINS` | `*` | Origens permitidas no CORS (lista separada por vírgula) |
-
-Na interface, a URL da API é definida pela meta tag `bemrecibo-api` em
-`frontend/index.html`. Vazia = mesma origem (quando o FastAPI serve o frontend).
-
-## Deploy
-
-Ver [`deploy/README.md`](deploy/README.md) para o passo a passo de publicação
-(Cloudflare Pages para a interface + hospedagem da API) e [`render.yaml`](render.yaml)
-para o blueprint do backend.
+| `DB` | `wrangler.toml` | Binding do banco D1 |
+| `ASSETS` | `wrangler.toml` | Binding que serve `frontend/` |
+| `ENVIRONMENT` | `wrangler.toml` | Rótulo exibido na interface |
+| `bemrecibo-api` | `frontend/index.html` | Opcional: aponta a interface para outra API |
 
 ## Limitações conhecidas (escopo acadêmico)
 
 - Autenticação de usuários e perfis de acesso ainda não implementadas
 - Comprovante legal, logotipo e assinatura armazenados em base64 na própria
-  tabela (adequado ao MVP; em produção usar object storage)
+  tabela (adequado ao MVP; em produção usar R2 ou outro object storage)
 - Textos fiscais são demonstrativos e dependem de validação contábil/jurídica
 - LGPD: dados pessoais de doadores devem seguir política de retenção e consentimento
 
