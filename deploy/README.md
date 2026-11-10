@@ -126,6 +126,21 @@ mas exige plano pago e o banco continua precisando de armazenamento externo
 
 ---
 
+## Utilitários
+
+```bash
+# aponta a interface para a API publicada (ou "" para mesma origem)
+./deploy/set-api-url.sh https://SUA-API
+
+# confere a publicação: saúde, instituição, indicadores, PDF e CSV
+./deploy/smoke-test.sh https://SUA-API
+```
+
+O `smoke-test.sh` também serve para validar o ambiente local
+(`./deploy/smoke-test.sh` sem argumentos usa `http://127.0.0.1:8000`).
+
+---
+
 ## Checklist pós-deploy
 
 - [ ] `GET /health` responde `{"status":"ok"}`
