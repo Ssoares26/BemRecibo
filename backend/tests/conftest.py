@@ -63,6 +63,34 @@ GOODS_DONATION = {
 }
 
 
+def make_png(width: int = 200, height: int = 60, color=(23, 60, 37)) -> bytes:
+    """Gera um PNG válido sem depender de bibliotecas externas."""
+    import struct
+    import zlib
+
+    raw = b""
+    row = bytes(color) * width
+    for _ in range(height):
+        raw += b"\x00" + row
+
+    def chunk(tag: bytes, data: bytes) -> bytes:
+        return (
+            struct.pack(">I", len(data)) + tag + data
+            + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
+        )
+
+    header = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", header)
+        + chunk(b"IDAT", zlib.compress(raw, 9))
+        + chunk(b"IEND", b"")
+    )
+
+
+PNG_BYTES = make_png()
+
+
 @pytest.fixture()
 def sample_donation(client):
     response = client.post("/donations", json=PF_DONATION)
