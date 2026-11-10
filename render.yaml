@@ -1,0 +1,21 @@
+# Blueprint de publicação da API no Render (https://render.com).
+# A interface é publicada separadamente no Cloudflare Pages (ver deploy/README.md).
+services:
+  - type: web
+    name: bemrecibo-api
+    runtime: python
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn bemrecibo.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      # Preencha com a origem do Cloudflare Pages, ex.: https://bemrecibo.pages.dev
+      - key: ALLOWED_ORIGINS
+        sync: false
+      # Para persistir dados no plano free, use um Postgres externo:
+      # DATABASE_URL = postgresql+psycopg://usuario:senha@host:5432/banco
+      - key: DATABASE_URL
+        sync: false
