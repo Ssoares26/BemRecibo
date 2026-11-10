@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
-# Verificação rápida de uma API publicada (ou local).
+# Verificação rápida do Worker publicado (ou local).
 #
 # Uso:
-#   ./deploy/smoke-test.sh https://bemrecibo-api.onrender.com
-#   ./deploy/smoke-test.sh                 # usa http://127.0.0.1:8000
+#   ./cloudflare/scripts/smoke-test.sh https://bemrecibo.SEU-SUBDOMINIO.workers.dev
+#   ./cloudflare/scripts/smoke-test.sh      # usa http://127.0.0.1:8787 (npm run dev)
+#   npm run smoke
 set -uo pipefail
 
-API="${1:-http://127.0.0.1:8000}"
+API="${1:-http://127.0.0.1:8787}"
 API="${API%/}"
 FAILURES=0
 
@@ -31,7 +32,8 @@ check "saúde" "/health" '"status"'
 check "instituição" "/institution" '"name"'
 check "indicadores" "/stats" '"donations_count"'
 check "doações" "/donations" '['
-check "documentação" "/docs" 'swagger'
+check "doadores" "/donors" '['
+check "interface" "/app.js" 'BemRecibo'
 
 DONATION_ID="$(curl -sS --max-time 20 "$API/donations" 2>/dev/null \
   | python3 -c 'import json,sys

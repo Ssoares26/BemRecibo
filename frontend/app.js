@@ -1,17 +1,20 @@
 /* ==========================================================================
    BemRecibo — camada de interface
-   Conversa com a API do backend (FastAPI) e mantém o estado das telas.
+   Conversa com a API do Cloudflare Worker que também serve estes arquivos,
+   portanto o padrão é a mesma origem (sem CORS e sem configurar URL).
    ========================================================================== */
 (() => {
   "use strict";
 
   /* ------------------------------------------------------------ config --- */
   const resolveApiBase = () => {
+    // Permite apontar para outro servidor (ex.: backend Python local em
+    // http://127.0.0.1:8000) apenas preenchendo a meta abaixo no index.html.
     const configured = document.querySelector('meta[name="bemrecibo-api"]')?.content?.trim();
     if (configured) return configured.replace(/\/+$/, "");
-    if (location.protocol === "file:") return "http://127.0.0.1:8000";
-    const isLocal = ["localhost", "127.0.0.1"].includes(location.hostname);
-    if (isLocal && location.port && location.port !== "8000") return "http://127.0.0.1:8000";
+    // Arquivo aberto direto do disco: assume o Worker de desenvolvimento.
+    if (location.protocol === "file:") return "http://127.0.0.1:8787";
+    // Em produção e no `wrangler dev` o app e a API vêm do mesmo host.
     return "";
   };
 

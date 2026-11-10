@@ -13,14 +13,16 @@ venv/
 .mypy_cache/
 .ruff_cache/
 
-# Node / Wrangler
+# Node / Cloudflare
 node_modules/
 .wrangler/
+.test-build/
 dist/
 
 # Ambiente
 .env
 .env.local
+.dev.vars
 
 # Sistema
 .DS_Store
