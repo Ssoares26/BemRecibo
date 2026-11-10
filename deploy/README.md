@@ -73,6 +73,16 @@ npx wrangler pages deploy          # lê wrangler.toml na raiz
 
 O arquivo `frontend/_headers` aplica cabeçalhos de segurança automaticamente.
 
+**Deploy automático via GitHub Actions (opcional):** o workflow
+[`deploy-pages.yml`](../.github/workflows/deploy-pages.yml) publica `frontend/`
+a cada push na `main`. Configure em *Settings → Secrets and variables → Actions*:
+
+- `CLOUDFLARE_API_TOKEN` — token com permissão *Cloudflare Pages: Edit*
+- `CLOUDFLARE_ACCOUNT_ID` — ID da conta (canto direito do dashboard)
+
+Nesse caso também é preciso ajustar a meta tag `bemrecibo-api` para a URL da API
+antes do push.
+
 ### 4. Liberar o CORS na API
 
 Defina a variável de ambiente da API com a URL do Pages:
