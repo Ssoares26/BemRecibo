@@ -82,16 +82,21 @@ npm run smoke          # bateria de verificação das rotas principais
 ## Deploy
 
 O passo a passo completo (criar o banco D1, aplicar o esquema, carregar os dados
-e publicar) está em **[`cloudflare/README.md`](cloudflare/README.md)**. Resumo:
+e publicar) está em **[`cloudflare/README.md`](cloudflare/README.md)**.
+
+Na primeira publicação, um comando resolve tudo:
 
 ```bash
 cd cloudflare
-npx wrangler login
-npx wrangler d1 create bemrecibo            # copie o database_id para wrangler.toml
-npm run db:migrate                          # esquema no banco de produção
-npm run db:seed                             # dados atuais do sistema
-npm run deploy
+bash scripts/setup.sh
 ```
+
+Ele confere o login, cria o banco D1, grava o `database_id` no `wrangler.toml`,
+aplica o esquema, carrega os dados e publica. Depois disso, novas versões saem com
+`npm run deploy`.
+
+> Importante: a aplicação é um **Worker** (com assets), não um projeto **Pages**.
+> No painel do Cloudflare use *Workers & Pages → Create → Workers*.
 
 ## Migração dos dados
 

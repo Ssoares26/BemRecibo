@@ -15,7 +15,8 @@
     "db:seed": "wrangler d1 execute bemrecibo --remote --file=seed.sql",
     "db:seed:local": "wrangler d1 execute bemrecibo --local --file=seed.sql",
     "db:export": "python3 scripts/export-sqlite-to-d1.py",
-    "smoke": "bash scripts/smoke-test.sh"
+    "smoke": "bash scripts/smoke-test.sh",
+    "setup": "bash scripts/setup.sh"
   },
   "dependencies": {
     "pdf-lib": "^1.17.1"

@@ -3,7 +3,7 @@
 Guia do deploy completo: **Worker** (API + PDF) + **D1** (banco) + **assets**
 (interface). Nada além do Cloudflare é necessário.
 
-Tempo estimado na primeira vez: 15 a 20 minutos.
+Tempo estimado na primeira vez: 10 a 15 minutos.
 
 ---
 
@@ -20,14 +20,35 @@ Worker, 5 GB de banco no D1 e 100 MB de arquivos estáticos.
 
 ---
 
-## 1. Instalar as dependências
+## Caminho rápido (recomendado)
+
+Um único comando faz tudo — login, banco, esquema, dados e publicação:
+
+```bash
+cd cloudflare
+bash scripts/setup.sh
+```
+
+O script é seguro para repetir: cria o banco D1 se ainda não existir, grava o
+`database_id` no `wrangler.toml`, aplica o esquema, carrega os dados somente se o
+banco estiver vazio e publica o Worker. Para apenas ver o que ele faria, rode
+`DRY_RUN=1 bash scripts/setup.sh`.
+
+O restante deste documento detalha cada etapa (útil se algo der errado) e explica
+como ligar a publicação automática (pela interface do Cloudflare ou pelo GitHub).
+
+---
+
+## Passo a passo manual
+
+### 1. Instalar as dependências
 
 ```bash
 cd cloudflare
 npm install
 ```
 
-## 2. Autenticar no Cloudflare
+### 2. Autenticar no Cloudflare
 
 ```bash
 npx wrangler login
@@ -42,7 +63,7 @@ export CLOUDFLARE_API_TOKEN=seu_token
 export CLOUDFLARE_ACCOUNT_ID=seu_account_id
 ```
 
-## 3. Criar o banco D1
+### 3. Criar o banco D1
 
 ```bash
 npx wrangler d1 create bemrecibo
@@ -60,7 +81,7 @@ database_id = "a1b2c3d4-0000-1111-2222-333344445555"
 Abra `cloudflare/wrangler.toml` e substitua o valor de `database_id`
 (o atual, `00000000-…`, é só um espaço reservado).
 
-## 4. Criar as tabelas no banco de produção
+### 4. Criar as tabelas no banco de produção
 
 ```bash
 npm run db:migrate
@@ -69,7 +90,7 @@ npm run db:migrate
 Isso aplica `migrations/0001_init.sql` (`--remote`) e cria as quatro tabelas
 (`institution`, `donors`, `donations`, `documents`) com seus índices.
 
-## 5. Carregar os dados que já existiam
+### 5. Carregar os dados que já existiam
 
 ```bash
 npm run db:seed
@@ -85,7 +106,7 @@ npx wrangler d1 execute bemrecibo --remote \
 
 > Se preferir começar com o banco vazio, pule este passo.
 
-## 6. Publicar
+### 6. Publicar
 
 ```bash
 npm run deploy
@@ -99,7 +120,7 @@ https://bemrecibo.SEU-SUBDOMINIO.workers.dev
 
 Abra no navegador: a interface carrega e já enxerga o banco D1.
 
-## 7. Ajustes finais dentro do sistema
+### 7. Ajustes finais dentro do sistema
 
 Na aba **Instituição**:
 
@@ -158,18 +179,47 @@ Guarde o arquivo fora do repositório.
 
 ---
 
-## Publicação automática pelo GitHub (opcional)
+## Deploy contínuo (opcional)
+
+Depois da primeira publicação manual, dá para deixar cada push na `main` publicar
+sozinho. Duas formas:
+
+### A) Cloudflare Workers Builds (pela interface)
+
+1. No painel: **Workers & Pages → bemrecibo → Settings → Builds → Connect**.
+2. Autorize o GitHub e escolha o repositório `Ssoares26/BemRecibo`, branch `main`.
+3. Preencha exatamente assim:
+
+   | Campo | Valor |
+   | --- | --- |
+   | Root directory | `cloudflare` |
+   | Build command | `npm ci` |
+   | Deploy command | `npx wrangler deploy` |
+
+O `Root directory` é essencial: o `wrangler.toml` fica em `cloudflare/`, então o
+deploy precisa rodar de dentro dessa pasta.
+
+> **Atenção:** esse projeto é um **Worker**, não um projeto **Pages**. Se você
+> criar pelo caminho "Pages", o deploy falha com
+> `It seems that you have run wrangler deploy on a Pages project`. Nesse caso,
+> apague o projeto Pages e use **Workers & Pages → Create → Workers**.
+
+O Workers Builds apenas publica o código: o banco (`db:migrate` / `db:seed`) é
+configurado uma única vez pelo passo a passo manual.
+
+### B) GitHub Actions
 
 O workflow `.github/workflows/deploy-cloudflare.yml` roda os testes e publica a
-cada push na `main`. Para ativar, cadastre em
-*GitHub → Settings → Secrets and variables → Actions*:
+cada push na `main`. Cadastre em *GitHub → Settings → Secrets and variables →
+Actions*:
 
 | Secret | Onde encontrar |
 | --- | --- |
 | `CLOUDFLARE_API_TOKEN` | *My Profile → API Tokens → Create Token → Edit Cloudflare Workers* |
 | `CLOUDFLARE_ACCOUNT_ID` | *Workers & Pages → Overview*, coluna da direita |
 
-Sem esses secrets o workflow é ignorado e o deploy continua sendo manual.
+Sem esses secrets o workflow roda os testes e para (o deploy manual continua
+valendo).
 
 ---
 
@@ -177,7 +227,9 @@ Sem esses secrets o workflow é ignorado e o deploy continua sendo manual.
 
 | Sintoma | Causa provável | Solução |
 | --- | --- | --- |
-| `Couldn't find a D1 DB with binding DB` | `database_id` ainda é o de exemplo | refaça o passo 3 |
+| `Missing entry-point to Worker script or to assets directory` | o deploy rodou na raiz do repositório | rode de dentro de `cloudflare/` ou use `bash scripts/setup.sh` |
+| `It seems that you have run wrangler deploy on a Pages project` | o projeto criado no painel é **Pages** | apague e crie um **Worker** (veja *Deploy contínuo*) |
+| `Couldn't find a D1 DB with binding DB` | `database_id` ainda é o de exemplo | rode `bash scripts/setup.sh` ou refaça o passo 3 |
 | `no such table: donations` | migração não aplicada no banco remoto | `npm run db:migrate` |
 | Interface abre, mas listas vazias | seed não executado | `npm run db:seed` |
 | `Authentication error` no deploy | sessão expirada | `npx wrangler login` novamente |
