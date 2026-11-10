@@ -1,0 +1,5 @@
+# Publicação da interface no Cloudflare Pages.
+# Uso (na raiz do repositório): npx wrangler pages deploy
+name = "bemrecibo"
+compatibility_date = "2025-06-01"
+pages_build_output_dir = "frontend"
