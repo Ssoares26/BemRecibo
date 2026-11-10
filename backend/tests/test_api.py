@@ -207,3 +207,94 @@ def test_missing_donation_returns_404(client):
     assert client.get("/donations/9999").status_code == 404
     assert client.get("/documents/9999/pdf").status_code == 404
     assert client.delete("/donations/9999").status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Identidade visual (logo e assinatura)
+# ---------------------------------------------------------------------------
+from tests.conftest import PNG_BYTES
+
+
+def test_logo_upload_preview_and_removal(client):
+    upload = client.put("/institution/logo", files={"logo": ("logo.png", PNG_BYTES, "image/png")})
+    assert upload.status_code == 200
+    assert upload.json()["has_logo"] is True
+    assert upload.json()["logo_filename"] == "logo.png"
+
+    image = client.get("/institution/logo")
+    assert image.status_code == 200
+    assert image.headers["content-type"] == "image/png"
+    assert image.content == PNG_BYTES
+
+    removed = client.delete("/institution/logo")
+    assert removed.status_code == 200
+    assert removed.json()["has_logo"] is False
+    assert client.get("/institution/logo").status_code == 404
+
+
+def test_signature_upload_and_removal(client):
+    upload = client.put(
+        "/institution/signature",
+        files={"signature": ("assinatura.png", PNG_BYTES, "image/png")},
+    )
+    assert upload.status_code == 200
+    assert upload.json()["has_signature"] is True
+    assert client.get("/institution/signature").status_code == 200
+
+    assert client.delete("/institution/signature").json()["has_signature"] is False
+    assert client.get("/institution/signature").status_code == 404
+
+
+def test_image_upload_rejects_invalid_file(client):
+    invalid = client.put("/institution/logo", files={"logo": ("nota.txt", b"texto", "text/plain")})
+    assert invalid.status_code == 400
+    empty = client.put("/institution/logo", files={"logo": ("vazio.png", b"", "image/png")})
+    assert empty.status_code == 400
+
+
+def test_image_upload_rejects_oversized_file(client):
+    oversized = b"\x89PNG\r\n\x1a\n" + b"0" * (1_500_001)
+    response = client.put("/institution/logo", files={"logo": ("grande.png", oversized, "image/png")})
+    assert response.status_code == 400
+
+
+def test_signatory_data_is_saved(client):
+    response = client.put(
+        "/institution",
+        json={"signatory_name": "Andrea Queiroz", "signatory_role": "Presidente voluntária"},
+    )
+    assert response.status_code == 200
+    data = client.get("/institution").json()
+    assert data["signatory_name"] == "Andrea Queiroz"
+    assert data["signatory_role"] == "Presidente voluntária"
+
+
+def test_pdf_includes_logo_and_signature_images(client, sample_donation):
+    plain = client.get(f"/documents/{sample_donation['id']}/pdf").content
+
+    client.put("/institution/logo", files={"logo": ("logo.png", PNG_BYTES, "image/png")})
+    client.put("/institution/signature", files={"signature": ("sig.png", PNG_BYTES, "image/png")})
+    branded = client.get(f"/documents/{sample_donation['id']}/pdf").content
+
+    assert branded.startswith(b"%PDF")
+    assert branded.count(b"/Subtype /Image") > plain.count(b"/Subtype /Image")
+    assert len(branded) > len(plain)
+
+
+def test_pdf_survives_special_characters(client):
+    payload = {
+        "person_type": "PJ",
+        "donor_name": "Silva & Cia <Comércio> LTDA",
+        "tax_id": "98.765.432/0001-10",
+        "donation_type": "bem",
+        "received_at": "2026-11-13",
+        "purpose": "Doação de itens \"diversos\" & alimentos",
+        "description": "Alimentos <não perecíveis> & água",
+        "quantity": 5,
+        "estimated_value": 300.0,
+    }
+    created = client.post("/donations", json=payload)
+    assert created.status_code == 200
+    pdf = client.get(f"/documents/{created.json()['id']}/pdf")
+    assert pdf.status_code == 200
+    assert pdf.content.startswith(b"%PDF")

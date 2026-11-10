@@ -26,7 +26,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from . import models, schemas
 from .database import Base, SessionLocal, engine, get_db
-from .services import brl, build_pdf, format_tax_id, number_to_words_pt
+from .services import brl, build_pdf, detect_image_type, format_tax_id, number_to_words_pt
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 FRONTEND_DIR = BASE_DIR.parent / "frontend"
@@ -100,6 +100,12 @@ def _institution_payload(institution: models.Institution) -> dict:
         "phone": institution.phone,
         "email": institution.email,
         "site": institution.site,
+        "signatory_name": institution.signatory_name,
+        "signatory_role": institution.signatory_role,
+        "has_logo": bool(institution.logo_content),
+        "logo_filename": institution.logo_filename,
+        "has_signature": bool(institution.signature_content),
+        "signature_filename": institution.signature_filename,
         "has_proof": bool(institution.proof_content),
         "proof_filename": institution.proof_filename,
         "proof_uploaded_at": institution.proof_uploaded_at,
@@ -167,6 +173,100 @@ def download_proof(db: Session = Depends(get_db)):
         io.BytesIO(content),
         media_type=media_type,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Identidade visual (logo e assinatura usadas nos PDFs)
+# ---------------------------------------------------------------------------
+
+MAX_IMAGE_BYTES = 1_500_000  # 1,5 MB
+IMAGE_FIELD_LABEL = {"logo": "logotipo", "signature": "assinatura"}
+
+
+async def _read_image(upload: UploadFile, label: str) -> tuple[str, str]:
+    """Valida e devolve (base64, nome do arquivo) de uma imagem PNG/JPEG."""
+    content = await upload.read()
+    if not content:
+        raise HTTPException(400, f"O arquivo de {label} está vazio.")
+    if len(content) > MAX_IMAGE_BYTES:
+        raise HTTPException(400, f"O arquivo de {label} excede 1,5 MB.")
+    if detect_image_type(content) is None:
+        raise HTTPException(400, f"Formato inválido para {label}. Envie PNG ou JPEG.")
+    return base64.b64encode(content).decode("ascii"), (upload.filename or f"{label}.png")
+
+
+def _image_download(content_b64: str | None, filename: str | None, default_name: str):
+    if not content_b64:
+        raise HTTPException(404, "Imagem não cadastrada.")
+    try:
+        raw = base64.b64decode(content_b64)
+    except Exception:
+        raise HTTPException(500, "Imagem armazenada em formato inválido.")
+    media_type = detect_image_type(raw) or "application/octet-stream"
+    return StreamingResponse(
+        io.BytesIO(raw),
+        media_type=media_type,
+        headers={
+            "Content-Disposition": f'inline; filename="{filename or default_name}"',
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+@app.put("/institution/logo")
+async def update_logo(logo: UploadFile = File(...), db: Session = Depends(get_db)):
+    content, filename = await _read_image(logo, "logotipo")
+    institution = get_institution(db)
+    institution.logo_content = content
+    institution.logo_filename = filename
+    institution.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    return {"message": "Logotipo atualizado.", **_institution_payload(institution)}
+
+
+@app.delete("/institution/logo")
+def delete_logo(db: Session = Depends(get_db)):
+    institution = get_institution(db)
+    institution.logo_content = None
+    institution.logo_filename = None
+    institution.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    return {"message": "Logotipo removido.", **_institution_payload(institution)}
+
+
+@app.get("/institution/logo")
+def get_logo(db: Session = Depends(get_db)):
+    institution = get_institution(db)
+    return _image_download(institution.logo_content, institution.logo_filename, "logo.png")
+
+
+@app.put("/institution/signature")
+async def update_signature(signature: UploadFile = File(...), db: Session = Depends(get_db)):
+    content, filename = await _read_image(signature, "assinatura")
+    institution = get_institution(db)
+    institution.signature_content = content
+    institution.signature_filename = filename
+    institution.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    return {"message": "Assinatura atualizada.", **_institution_payload(institution)}
+
+
+@app.delete("/institution/signature")
+def delete_signature(db: Session = Depends(get_db)):
+    institution = get_institution(db)
+    institution.signature_content = None
+    institution.signature_filename = None
+    institution.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    return {"message": "Assinatura removida.", **_institution_payload(institution)}
+
+
+@app.get("/institution/signature")
+def get_signature(db: Session = Depends(get_db)):
+    institution = get_institution(db)
+    return _image_download(
+        institution.signature_content, institution.signature_filename, "assinatura.png"
     )
 
 

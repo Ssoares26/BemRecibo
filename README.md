@@ -9,6 +9,7 @@ automatizado, rastreável e com travas de conformidade fiscal.
 - Registro de doações **financeiras** e de **bens/serviços**
 - Numeração sequencial automática (`BR-2026-000001`) por exercício
 - Emissão de PDF padronizado: recibo PF/PJ, declaração pós-habilitação e termo de doação e entrega
+- **Identidade visual**: logo da instituição, assinatura digitalizada, nome/cargo do responsável e código de verificação do documento
 - **Trava de habilitação fiscal**: só emite documento sem advertência após anexo do comprovante legal
 - Consulta com filtros, reemissão de documentos, cancelamento com trilha de auditoria e exportação CSV
 - Painel com indicadores de arrecadação
@@ -87,7 +88,9 @@ registro. Reemitir um documento nunca cria uma nova doação nem reaplica regras
 | GET | `/` | Status da API (JSON) ou redireciona para a interface |
 | GET | `/health` | Verificação de saúde |
 | GET | `/institution` | Dados e status da instituição |
-| PUT | `/institution` | Atualiza dados cadastrais usados no PDF |
+| PUT | `/institution` | Atualiza dados cadastrais e assinante usados no PDF |
+| PUT/DELETE/GET | `/institution/logo` | Envia, remove ou visualiza o logotipo (PNG/JPEG, até 1,5 MB) |
+| PUT/DELETE/GET | `/institution/signature` | Envia, remove ou visualiza a assinatura digitalizada |
 | PUT | `/institution/status?status=habilitada` | Habilita (exige `proof`) ou volta para pré-habilitação |
 | GET | `/institution/proof` | Baixa o comprovante anexado |
 | POST/GET | `/donors` | Cadastro e listagem de doadores (`search`, `person_type`) |
@@ -127,8 +130,8 @@ para o blueprint do backend.
 ## Limitações conhecidas (escopo acadêmico)
 
 - Autenticação de usuários e perfis de acesso ainda não implementadas
-- Comprovante legal armazenado em base64 na própria tabela (adequado ao MVP;
-  em produção usar object storage)
+- Comprovante legal, logotipo e assinatura armazenados em base64 na própria
+  tabela (adequado ao MVP; em produção usar object storage)
 - Textos fiscais são demonstrativos e dependem de validação contábil/jurídica
 - LGPD: dados pessoais de doadores devem seguir política de retenção e consentimento
 
